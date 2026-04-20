@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FireSense — IoT Dashboard</title>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────────── */
+    :root {
+      --bg:           #080c10;
+      --surface:      #0d1318;
+      --surface2:     #121920;
+      --border:       rgba(255,255,255,0.07);
+      --border-hot:   rgba(255,90,20,0.45);
+
+      --safe:         #00e5a0;
+      --danger:       #ff4920;
+      --warn:         #ffb020;
+      --blue:         #3db8f5;
+      --purple:       #9d6ef8;
+
+      --text:         #e8edf2;
+      --muted:        #5a6878;
+
+      --font-display: 'Rajdhani', sans-serif;
+      --font-mono:    'Share Tech Mono', monospace;
+      --font-body:    'Inter', sans-serif;
+    }
+
+    /* ── Reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* scanline texture overlay */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.04) 2px,
+        rgba(0,0,0,0.04) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────── */
+    .page { max-width: 1300px; margin: 0 auto; padding: 28px 24px 60px; }
+
+    /* ── Header ────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .logo-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #ff4920, #ff9020);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 24px rgba(255,73,32,0.4);
+    }
+    .logo-text { font-family: var(--font-display); }
+    .logo-text h1 { font-size: 26px; font-weight: 700; letter-spacing: 2px; line-height: 1; }
+    .logo-text span { font-size: 11px; color: var(--muted); letter-spacing: 3px; text-transform: uppercase; font-family: var(--font-mono); }
+
+    .header-right { display: flex; align-items: center; gap: 20px; }
+    .status-badge {
+      display: flex; align-items: center; gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      transition: all .3s;
+    }
+    .status-badge.safe   { border-color: rgba(0,229,160,.4); color: var(--safe); }
+    .status-badge.danger { border-color: var(--border-hot); color: var(--danger); box-shadow: 0 0 20px rgba(255,73,32,.25); }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: currentColor;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.85)} }
+
+    .last-update { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+
+    /* ── Alert banner ──────────────────────────────────────────────── */
+    #alert-banner {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      background: linear-gradient(135deg, rgba(255,73,32,.18), rgba(255,144,32,.1));
+      border: 1px solid var(--border-hot);
+      border-radius: 12px;
+      padding: 16px 22px;
+      margin-bottom: 28px;
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: var(--danger);
+      animation: flash-border 1s ease-in-out infinite alternate;
+    }
+    @keyframes flash-border { from { box-shadow: 0 0 0 rgba(255,73,32,0); } to { box-shadow: 0 0 30px rgba(255,73,32,.35); } }
+    #alert-banner.visible { display: flex; }
+    #alert-banner .alert-icon { font-size: 28px; }
+    #alert-banner .alert-reasons { font-size: 13px; color: var(--warn); font-family: var(--font-body); font-weight: 400; margin-top: 2px; }
+
+    /* ── Metric cards ──────────────────────────────────────────────── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 22px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color .3s, box-shadow .3s;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent, var(--blue));
+      opacity: .7;
+    }
+    .card:hover { border-color: rgba(255,255,255,.14); }
+
+    .card-label {
+      font-size: 10px;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      margin-bottom: 10px;
+    }
+    .card-value {
+      font-family: var(--font-display);
+      font-size: 38px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--accent, var(--blue));
+      letter-spacing: 1px;
+    }
+    .card-unit {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 400;
+      margin-left: 2px;
+    }
+    .card-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 8px;
+      font-family: var(--font-mono);
+    }
+
+    /* per-card accent colours */
+    .card.temp   { --accent: #ff6b3d; }
+    .card.hum    { --accent: var(--blue); }
+    .card.smoke  { --accent: var(--warn); }
+    .card.prob   { --accent: var(--purple); }
+    .card.flame  { --accent: var(--safe); }
+
+    .flame-label {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+    .flame-label.fire   { color: var(--danger); }
+    .flame-label.safe   { color: var(--safe); }
+
+    /* ── Charts grid ───────────────────────────────────────────────── */
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+      gap: 20px;
+    }
+    @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 22px 16px;
+    }
+    .chart-title {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+    .chart-wrap { position: relative; height: 200px; }
+
+    /* ── Scrollbar ─────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: #1e2a35; border-radius: 3px; }
+  </style>
+</head>
+
+<body>
+<div class="page">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🔥</div>
+      <div class="logo-text">
+        <h1>FIRESENSE</h1>
+        <span>IoT Fire Detection Dashboard</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="global-status" class="status-badge">
+        <span class="dot"></span>
+        <span id="status-text">CONNECTING…</span>
+      </div>
+      <div class="last-update">Last update: <span id="ts">—</span></div>
+    </div>
+  </header>
+
+  <!-- ── Alert banner (shown only when fire is detected) ────────────── -->
+  <div id="alert-banner">
+    <span class="alert-icon">⚠️</span>
+    <div>
+      <div>🔥 FIRE DETECTED</div>
+      <div class="alert-reasons" id="alert-reasons"></div>
+    </div>
+  </div>
+
+  <!-- ── Metric cards ────────────────────────────────────────────────── -->
+  <div class="cards">
+    <div class="card temp">
+      <div class="card-label">Temperature</div>
+      <div class="card-value" id="c-temp">—<span class="card-unit">°C</span></div>
+      <div class="card-sub" id="s-temp">awaiting data…</div>
+    </div>
+    <div class="card hum">
+      <div class="card-label">Humidity</div>
+      <div class="card-value" id="c-hum">—<span class="card-unit">%</span></div>
+      <div class="card-sub" id="s-hum">awaiting data…</div>
+    </div>
+    <div class="card smoke">
+      <div class="card-label">Smoke Level (MQ-4)</div>
+      <div class="card-value" id="c-smoke">—</div>
+      <div class="card-sub" id="s-smoke">awaiting data…</div>
+    </div>
+    <div class="card prob">
+      <div class="card-label">Fire Probability</div>
+      <div class="card-value" id="c-prob">—<span class="card-unit">%</span></div>
+      <div class="card-sub" id="s-prob">awaiting data…</div>
+    </div>
+    <div class="card flame">
+      <div class="card-label">Flame Sensor</div>
+      <div class="flame-label safe" id="c-flame">—</div>
+      <div class="card-sub" id="s-flame">awaiting data…</div>
+    </div>
+  </div>
+
+  <!-- ── Charts ──────────────────────────────────────────────────────── -->
+  <div class="charts">
+    <div class="chart-card">
+      <div class="chart-title">🌡 Temperature (°C)</div>
+      <div class="chart-wrap"><canvas id="ch-temp"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">💧 Humidity (%)</div>
+      <div class="chart-wrap"><canvas id="ch-hum"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">💨 Smoke Level (MQ-4)</div>
+      <div class="chart-wrap"><canvas id="ch-smoke"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">🤖 Fire Probability (%)</div>
+      <div class="chart-wrap"><canvas id="ch-prob"></canvas></div>
+    </div>
+  </div>
+
+</div><!-- /.page -->
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   FireSense Dashboard  –  real-time IoT visualisation
+   Polls GET /data every 2.5 s and updates all UI elements.
+   ══════════════════════════════════════════════════════════ */
+
+const POLL_INTERVAL_MS = 2500;   // refresh every 2.5 seconds
+const HISTORY_POINTS   = 60;     // max data-points shown in charts
+const SMOKE_THRESHOLD  = 1000;   // above this ⇒ "high smoke"
+
+// ── Smoke level description ───────────────────────────────────────────
+function smokeLabel(v) {
+  if (v < 300)  return "clean air";
+  if (v < 700)  return "moderate";
+  if (v < 1000) return "elevated";
+  return "⚠ HIGH";
+}
+
+// ── Fire logic: returns {fire, reasons} ───────────────────────────────
+function assessFire(d) {
+  const reasons = [];
+  if (d.flame === 1)            reasons.push("flame sensor triggered");
+  if (d.fireProb >= 0.5)        reasons.push(`ML probability ${(d.fireProb*100).toFixed(0)}%`);
+  if (d.smoke >= SMOKE_THRESHOLD) reasons.push(`smoke ${d.smoke} (high)`);
+  return { fire: reasons.length > 0, reasons };
+}
+
+// ── Chart factory ─────────────────────────────────────────────────────
+function makeChart(canvasId, label, color, yLabel, maxY) {
+  const ctx = document.getElementById(canvasId).getContext("2d");
+  return new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [{
+        label,
+        data: [],
+        borderColor: color,
+        backgroundColor: color.replace(")", ", 0.1)").replace("rgb", "rgba"),
+        borderWidth: 2,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        tension: 0.4,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: "#5a6878", font: { family: "'Share Tech Mono'", size: 10 }, maxTicksLimit: 8 },
+          grid:  { color: "rgba(255,255,255,0.04)" }
+        },
+        y: {
+          min: 0,
+          max: maxY || undefined,
+          title: { display: false },
+          ticks: { color: "#5a6878", font: { family: "'Share Tech Mono'", size: 10 } },
+          grid:  { color: "rgba(255,255,255,0.04)" }
+        }
+      }
+    }
+  });
+}
+
+// Initialise the four charts
+const charts = {
+  temp:  makeChart("ch-temp",  "°C",  "rgb(255,107,61)",  "°C",   null),
+  hum:   makeChart("ch-hum",   "%",   "rgb(61,184,245)",  "%",    100),
+  smoke: makeChart("ch-smoke", "ADC", "rgb(255,176,32)",  "ADC",  null),
+  prob:  makeChart("ch-prob",  "%",   "rgb(157,110,248)", "%",    100),
+};
+
+// ── Push new point to a chart ─────────────────────────────────────────
+function pushPoint(chart, ts, value) {
+  const label = ts.slice(11, 19);   // "HH:MM:SS" from ISO string
+  chart.data.labels.push(label);
+  chart.data.datasets[0].data.push(value);
+  // trim to HISTORY_POINTS
+  if (chart.data.labels.length > HISTORY_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+  chart.update("none");   // skip animation for smoother rolling
+}
+
+// ── Seed charts with historical data on first load ────────────────────
+function seedCharts(history) {
+  for (const d of history) {
+    pushPoint(charts.temp,  d.timestamp, d.temperature);
+    pushPoint(charts.hum,   d.timestamp, d.humidity);
+    pushPoint(charts.smoke, d.timestamp, d.smoke);
+    pushPoint(charts.prob,  d.timestamp, +(d.fireProb * 100).toFixed(1));
+  }
+}
+
+// ── Update metric cards ───────────────────────────────────────────────
+function updateCards(d) {
+  // Temperature
+  document.getElementById("c-temp").innerHTML =
+    `${d.temperature.toFixed(1)}<span class="card-unit">°C</span>`;
+  document.getElementById("s-temp").textContent =
+    d.temperature > 60 ? "⚠ critically high" :
+    d.temperature > 40 ? "elevated" : "normal range";
+
+  // Humidity
+  document.getElementById("c-hum").innerHTML =
+    `${d.humidity.toFixed(1)}<span class="card-unit">%</span>`;
+  document.getElementById("s-hum").textContent =
+    d.humidity < 20 ? "⚠ very dry" :
+    d.humidity > 80 ? "high moisture"  : "normal range";
+
+  // Smoke
+  document.getElementById("c-smoke").textContent = d.smoke;
+  document.getElementById("s-smoke").textContent = smokeLabel(d.smoke);
+
+  // Fire probability
+  const pct = (d.fireProb * 100).toFixed(1);
+  document.getElementById("c-prob").innerHTML =
+    `${pct}<span class="card-unit">%</span>`;
+  document.getElementById("s-prob").textContent =
+    d.fireProb >= 0.75 ? "⚠ very likely" :
+    d.fireProb >= 0.5  ? "probable"       :
+    d.fireProb >= 0.25 ? "possible"       : "unlikely";
+
+  // Flame sensor
+  const fl = document.getElementById("c-flame");
+  if (d.flame === 1) {
+    fl.textContent = "FIRE";
+    fl.className = "flame-label fire";
+    document.getElementById("s-flame").textContent = "flame detected!";
+  } else {
+    fl.textContent = "SAFE";
+    fl.className = "flame-label safe";
+    document.getElementById("s-flame").textContent = "no flame";
+  }
+
+  // Timestamp
+  document.getElementById("ts").textContent = d.timestamp.replace("T"," ").replace("Z","");
+}
+
+// ── Update global status badge & alert banner ─────────────────────────
+function updateAlert(d) {
+  const { fire, reasons } = assessFire(d);
+  const badge = document.getElementById("global-status");
+  const statusText = document.getElementById("status-text");
+  const banner = document.getElementById("alert-banner");
+  const alertReasons = document.getElementById("alert-reasons");
+
+  if (fire) {
+    badge.className = "status-badge danger";
+    statusText.textContent = "🔥 FIRE DETECTED";
+    banner.classList.add("visible");
+    alertReasons.textContent = "Triggers: " + reasons.join(" · ");
+    document.title = "⚠ FIRE DETECTED — FireSense";
+  } else {
+    badge.className = "status-badge safe";
+    statusText.textContent = "✅ SAFE";
+    banner.classList.remove("visible");
+    document.title = "✅ SAFE — FireSense";
+  }
+}
+
+// ── Main polling loop ─────────────────────────────────────────────────
+let seeded = false;   // have we already loaded historical data?
+
+async function poll() {
+  try {
+    const res  = await fetch("/data");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+
+    // First load: seed charts with all historical data
+    if (!seeded && json.history && json.history.length) {
+      seedCharts(json.history);
+      seeded = true;
+    }
+
+    const d = json.latest;
+    if (!d) return;   // database still empty
+
+    updateCards(d);
+    updateAlert(d);
+
+    // Add only the newest point to charts on each poll
+    pushPoint(charts.temp,  d.timestamp, d.temperature);
+    pushPoint(charts.hum,   d.timestamp, d.humidity);
+    pushPoint(charts.smoke, d.timestamp, d.smoke);
+    pushPoint(charts.prob,  d.timestamp, +(d.fireProb * 100).toFixed(1));
+
+  } catch (err) {
+    // Show a brief disconnected state without crashing
+    const badge = document.getElementById("global-status");
+    badge.className = "status-badge";
+    document.getElementById("status-text").textContent = "⚡ RECONNECTING…";
+    console.warn("Poll error:", err.message);
+  }
+}
+
+// Start immediately and then every POLL_INTERVAL_MS
+poll();
+setInterval(poll, POLL_INTERVAL_MS);
+</script>
+</body>
+</html>
