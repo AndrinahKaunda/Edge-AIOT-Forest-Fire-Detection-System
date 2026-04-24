@@ -325,13 +325,13 @@
 
 const POLL_INTERVAL_MS = 2500;   // refresh every 2.5 seconds
 const HISTORY_POINTS   = 60;     // max data-points shown in charts
-const SMOKE_THRESHOLD  = 1000;   // above this ⇒ "high smoke"
+const SMOKE_THRESHOLD  = 2000;   // above this ⇒ "high smoke"
 
 // ── Smoke level description ───────────────────────────────────────────
 function smokeLabel(v) {
-  if (v < 300)  return "clean air";
-  if (v < 700)  return "moderate";
-  if (v < 1000) return "elevated";
+  if (v < 1000)  return "clean air";
+  if (v < 1500)  return "moderate";
+  if (v < 2000) return "elevated";
   return "⚠ HIGH";
 }
 
@@ -442,7 +442,7 @@ function updateCards(d) {
     `${pct}<span class="card-unit">%</span>`;
   document.getElementById("s-prob").textContent =
     d.fireProb >= 0.75 ? "⚠ very likely" :
-    d.fireProb >= 0.5  ? "probable"       :
+    d.fireProb >= 0.50  ? "probable"       :
     d.fireProb >= 0.25 ? "possible"       : "unlikely";
 
   // Flame sensor
@@ -477,9 +477,9 @@ function updateAlert(d) {
     document.title = "⚠ FIRE DETECTED — FireSense";
   } else {
     badge.className = "status-badge safe";
-    statusText.textContent = "✅ SAFE";
+    statusText.textContent = " SAFE";
     banner.classList.remove("visible");
-    document.title = "✅ SAFE — FireSense";
+    document.title = " SAFE — FireSense";
   }
 }
 
